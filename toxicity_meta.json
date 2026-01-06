@@ -1,0 +1,13 @@
+{
+  "labels": [
+    "non_toxic",
+    "toxic"
+  ],
+  "threshold_toxic": 0.7,
+  "model_out": "../toxicity_pipeline.joblib",
+  "val_macro_f1": 0.7988055760255466,
+  "test_macro_f1": 0.7857344013687115,
+  "val_accuracy": 0.893170545593285,
+  "test_accuracy": 0.8908499767765908,
+  "notes": "Pipeline: word+char TF-IDF + LinearSVC(class_weight=balanced) + CalibratedClassifierCV(sigmoid, cv=3)"
+}
