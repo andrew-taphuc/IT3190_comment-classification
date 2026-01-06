@@ -2,7 +2,7 @@ import pandas as pd
 import os
 
 # Import hàm làm sạch từ module text_cleaner
-from text_cleaner import clean_text
+from core import clean_text
 
 IN_DIR = "data/interim"
 OUT_DIR = "data/processed"

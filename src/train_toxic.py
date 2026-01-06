@@ -5,15 +5,15 @@ from dataclasses import dataclass
 
 import pandas as pd
 import joblib
+import numpy as np
 
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.metrics import classification_report, f1_score
 
-# Import hàm làm sạch từ module text_cleaner (có thể pickle được)
-from text_cleaner import clean_text
+# Import modules
+from core import clean_text, DEFAULT_MODEL_CONFIG, ModelConfig, print_evaluation_report, evaluate_model
 
 
 # ----------------------------
@@ -39,7 +39,7 @@ def load_split(path: str, text_col: str = "text", label_col: str = "label"):
     return X, y
 
 
-def build_pipeline(C: float = 2.0) -> Pipeline:
+def build_pipeline(config: ModelConfig = None) -> Pipeline:
     """
     Pipeline:
       - word TF-IDF (1-2)
@@ -48,21 +48,25 @@ def build_pipeline(C: float = 2.0) -> Pipeline:
       - LinearSVC (balanced)
       - CalibratedClassifierCV => predict_proba (score)
     """
+    if config is None:
+        config = DEFAULT_MODEL_CONFIG
+    
     word_tfidf = TfidfVectorizer(
         preprocessor=clean_text,
         analyzer="word",
-        ngram_range=(1, 2),
-        min_df=2,
-        max_df=0.95,
-        sublinear_tf=True,
+        ngram_range=config.word_ngram_range,
+        min_df=config.min_df,
+        max_df=config.max_df,
+        max_features=config.max_features,
+        sublinear_tf=config.sublinear_tf,
     )
 
     char_tfidf = TfidfVectorizer(
         preprocessor=clean_text,
         analyzer="char",
-        ngram_range=(3, 5),
-        min_df=2,
-        max_df=0.95,
+        ngram_range=config.char_ngram_range,
+        min_df=config.min_df,
+        max_df=config.max_df,
     )
 
     feats = FeatureUnion(
@@ -72,12 +76,17 @@ def build_pipeline(C: float = 2.0) -> Pipeline:
         ]
     )
 
-    base_svm = LinearSVC(C=C, class_weight="balanced", random_state=42)
+    base_svm = LinearSVC(
+        C=config.svm_C,
+        class_weight=config.svm_class_weight,
+        random_state=config.random_state,
+        max_iter=3000
+    )
 
     clf = CalibratedClassifierCV(
         estimator=base_svm,
-        method="sigmoid",
-        cv=3,
+        method=config.calibration_method,
+        cv=config.calibration_cv,
     )
 
     return Pipeline(
@@ -88,13 +97,14 @@ def build_pipeline(C: float = 2.0) -> Pipeline:
     )
 
 
-def eval_split(name: str, pipe: Pipeline, X, y) -> float:
+def eval_split(name: str, pipe: Pipeline, X, y) -> dict:
+    """Đánh giá model trên một split và trả về metrics."""
     pred = pipe.predict(X)
-    macro = f1_score(y, pred, average="macro")
-    print(f"\n=== {name} ===")
-    print(f"macro_f1: {macro:.4f}")
-    print(classification_report(y, pred, digits=4))
-    return float(macro)
+    y_proba = pipe.predict_proba(X) if hasattr(pipe, 'predict_proba') else None
+    labels = sorted(list(set(y)))
+    
+    metrics = print_evaluation_report(y, pred, y_proba, labels, split_name=name)
+    return metrics
 
 
 def main():
@@ -107,8 +117,8 @@ def main():
     ap.add_argument("--text_col", default="text")
     ap.add_argument("--label_col", default="label")
 
-    ap.add_argument("--model_out", default="toxicity_pipeline.joblib")
-    ap.add_argument("--meta_out", default="toxicity_meta.json")
+    ap.add_argument("--model_out", default="outputs/toxicity_pipeline.joblib")
+    ap.add_argument("--meta_out", default="outputs/toxicity_meta.json")
     ap.add_argument("--C", type=float, default=2.0)
     ap.add_argument("--threshold", type=float, default=0.70, help="ngưỡng toxic mặc định lưu vào meta")
 
@@ -137,13 +147,25 @@ def main():
 
     print(f"Sizes: train={len(X_train)}, val={len(X_val)}, test={len(X_test)}")
 
-    pipe = build_pipeline(C=args.C)
+    # Ensure output directory exists
+    import os
+    os.makedirs(os.path.dirname(paths.model_out) if os.path.dirname(paths.model_out) else "outputs", exist_ok=True)
 
-    print("Training...")
+    # Build config
+    model_config = ModelConfig(
+        svm_C=args.C,
+        default_threshold=args.threshold,
+    )
+    
+    pipe = build_pipeline(config=model_config)
+
+    print("\n🚀 Training model...")
     pipe.fit(X_train, y_train)
+    print("✅ Training completed!")
 
-    val_macro = eval_split("VAL", pipe, X_val, y_val)
-    test_macro = eval_split("TEST", pipe, X_test, y_test)
+    # Evaluate
+    val_metrics = eval_split("VALIDATION", pipe, X_val, y_val)
+    test_metrics = eval_split("TEST", pipe, X_test, y_test)
 
     # Save model
     joblib.dump(pipe, paths.model_out)
@@ -159,9 +181,17 @@ def main():
         "test_csv": paths.test_csv,
         "text_col": args.text_col,
         "label_col": args.label_col,
-        "C": float(args.C),
-        "val_macro_f1": float(val_macro),
-        "test_macro_f1": float(test_macro),
+        "config": {
+            "svm_C": float(model_config.svm_C),
+            "word_ngram_range": list(model_config.word_ngram_range),
+            "char_ngram_range": list(model_config.char_ngram_range),
+            "min_df": model_config.min_df,
+            "max_df": model_config.max_df,
+        },
+        "metrics": {
+            "val": {k: v for k, v in val_metrics.items() if k != 'confusion_matrix'},
+            "test": {k: v for k, v in test_metrics.items() if k != 'confusion_matrix'},
+        },
         "notes": "Pipeline: word+char TF-IDF + LinearSVC(class_weight=balanced) + CalibratedClassifierCV(sigmoid, cv=3)",
     }
 

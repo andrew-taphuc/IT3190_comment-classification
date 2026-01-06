@@ -4,15 +4,15 @@ import argparse
 import sys
 import joblib
 
-# Import text_cleaner để đảm bảo module có sẵn khi load model
+# Import core để đảm bảo module có sẵn khi load model
 # (model được lưu với hàm clean_text từ module này)
-import text_cleaner
+from core import clean_text
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="toxicity_pipeline.joblib")
-    ap.add_argument("--meta", default="toxicity_meta.json")
+    ap.add_argument("--model", default="outputs/toxicity_pipeline.joblib")
+    ap.add_argument("--meta", default="outputs/toxicity_meta.json")
     ap.add_argument("--text", default=None, help="Text cần predict. Nếu không có, đọc từ stdin.")
     ap.add_argument("--threshold", type=float, default=None, help="Override threshold toxic")
     args = ap.parse_args()
