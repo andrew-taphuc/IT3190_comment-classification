@@ -2,7 +2,7 @@ import pandas as pd
 import os
 
 # Import hàm làm sạch từ module text_cleaner
-from text_cleaner import clean_text, normalize_teencode
+from text_cleaner import clean_text
 
 IN_DIR = "data/interim"
 OUT_DIR = "data/processed"
@@ -14,7 +14,7 @@ def process(split: str):
 
     df = pd.read_csv(in_path).dropna(subset=["text", "label"]).copy()
 
-    df["text"] = df["text"].astype(str).apply(clean_text).apply(normalize_teencode)
+    df["text"] = df["text"].astype(str).apply(clean_text)
 
     # drop empty + dedup
     df = df[df["text"].str.len() > 0].drop_duplicates(subset=["text"]).reset_index(drop=True)
