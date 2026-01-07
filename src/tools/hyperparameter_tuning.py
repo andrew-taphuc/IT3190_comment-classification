@@ -149,9 +149,16 @@ def main():
     print(f"  Macro F1: {val_metrics['macro_f1']:.4f}")
     
     # Save results
+    # Xử lý NaN: chuyển thành None để JSON hợp lệ
+    best_cv_score = search.best_score_
+    if pd.isna(best_cv_score) or np.isnan(best_cv_score):
+        best_cv_score_json = None
+    else:
+        best_cv_score_json = float(best_cv_score)
+    
     results = {
         "best_params": search.best_params_,
-        "best_cv_score": float(search.best_score_),
+        "best_cv_score": best_cv_score_json,
         "val_metrics": {k: v for k, v in val_metrics.items() if k != 'confusion_matrix'},
         "cv_folds": args.cv,
         "method": args.method,

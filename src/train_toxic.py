@@ -119,8 +119,10 @@ def main():
 
     ap.add_argument("--model_out", default="outputs/toxicity_pipeline.joblib")
     ap.add_argument("--meta_out", default="outputs/toxicity_meta.json")
-    ap.add_argument("--C", type=float, default=2.0)
+    ap.add_argument("--C", type=float, default=None, help="SVM C parameter (override best_params.json nếu có)")
     ap.add_argument("--threshold", type=float, default=0.70, help="ngưỡng toxic mặc định lưu vào meta")
+    ap.add_argument("--best_params_json", default="outputs/best_params.json", 
+                   help="Đường dẫn đến file best_params.json từ hyperparameter tuning")
 
     args = ap.parse_args()
 
@@ -151,9 +153,64 @@ def main():
     import os
     os.makedirs(os.path.dirname(paths.model_out) if os.path.dirname(paths.model_out) else "outputs", exist_ok=True)
 
+    # Load best params từ JSON nếu có
+    best_params = {}
+    if os.path.exists(args.best_params_json):
+        try:
+            print(f"\n📖 Đọc hyperparameters từ: {args.best_params_json}")
+            with open(args.best_params_json, "r", encoding="utf-8") as f:
+                tuning_results = json.load(f)
+                best_params = tuning_results.get("best_params", {})
+                if best_params:
+                    print(f"  ✅ Tìm thấy {len(best_params)} hyperparameters")
+                else:
+                    print(f"  ⚠️  File tồn tại nhưng không có 'best_params'")
+        except json.JSONDecodeError as e:
+            print(f"  ⚠️  Lỗi đọc JSON: {e}")
+            print(f"  → Sử dụng giá trị mặc định")
+        except Exception as e:
+            print(f"  ⚠️  Lỗi khi đọc file: {e}")
+            print(f"  → Sử dụng giá trị mặc định")
+    else:
+        print(f"\n📖 Không tìm thấy file: {args.best_params_json}")
+        print(f"  → Sử dụng giá trị mặc định hoặc tham số dòng lệnh")
+    
+    # Map best_params vào ModelConfig
+    # best_params có format: "features__word_tfidf__ngram_range", "clf__C", etc.
+    svm_C = args.C  # Ưu tiên tham số dòng lệnh
+    word_ngram_range = DEFAULT_MODEL_CONFIG.word_ngram_range
+    max_features = DEFAULT_MODEL_CONFIG.max_features
+    
+    # Xác định giá trị C
+    if svm_C is not None:
+        print(f"  Sử dụng C={svm_C} từ tham số dòng lệnh")
+    elif "clf__C" in best_params:
+        svm_C = float(best_params["clf__C"])
+        print(f"  Sử dụng C={svm_C} từ best_params")
+    else:
+        svm_C = DEFAULT_MODEL_CONFIG.svm_C
+        print(f"  Sử dụng C={svm_C} (mặc định)")
+    
+    # Xác định word_ngram_range
+    if "features__word_tfidf__ngram_range" in best_params:
+        ngram_val = best_params["features__word_tfidf__ngram_range"]
+        word_ngram_range = tuple(ngram_val) if isinstance(ngram_val, list) else ngram_val
+        print(f"  Sử dụng word_ngram_range={word_ngram_range} từ best_params")
+    else:
+        print(f"  Sử dụng word_ngram_range={word_ngram_range} (mặc định)")
+    
+    # Xác định max_features
+    if "features__word_tfidf__max_features" in best_params:
+        max_features = int(best_params["features__word_tfidf__max_features"])
+        print(f"  Sử dụng max_features={max_features} từ best_params")
+    else:
+        print(f"  Sử dụng max_features={max_features} (mặc định)")
+
     # Build config
     model_config = ModelConfig(
-        svm_C=args.C,
+        svm_C=svm_C,
+        word_ngram_range=word_ngram_range,
+        max_features=max_features,
         default_threshold=args.threshold,
     )
     

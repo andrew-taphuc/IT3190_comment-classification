@@ -61,11 +61,17 @@ def build_ensemble_pipeline(config: ModelConfig = None) -> Pipeline:
     ])
     
     # Base models
-    svm = LinearSVC(
+    # LinearSVC không có predict_proba, cần wrap trong CalibratedClassifierCV
+    svm_base = LinearSVC(
         C=config.svm_C,
         class_weight=config.svm_class_weight,
         random_state=config.random_state,
         max_iter=3000
+    )
+    svm = CalibratedClassifierCV(
+        estimator=svm_base,
+        method='sigmoid',
+        cv=3
     )
     
     lr = LogisticRegression(
